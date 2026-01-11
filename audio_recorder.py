@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QGroupBox
 )
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal, QObject
-from PyQt6.QtGui import QPalette, QColor
+from PyQt6.QtGui import QPalette, QColor, QPixmap
 import pyaudio
 
 
@@ -121,7 +121,7 @@ class AudioRecorder(QObject):
             
         except Exception as e:
             self.is_testing = False
-            self.test_complete.emit(False, f"Test failed: {str(e)}")
+            self.test_complete.emit(False, "Test failed: " + str(e))
     
     def play_test(self):
         """Play back the test recording."""
@@ -277,6 +277,18 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Logo at the top center
+        logo_label = QLabel()
+        logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path)
+            # Scale logo to a reasonable size (e.g., 120x120)
+            scaled_pixmap = pixmap.scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            logo_label.setStyleSheet("background: transparent; padding: 10px;")
+            main_layout.addWidget(logo_label)
         
         # Device Selection Group
         device_group = QGroupBox("Audio Device")
