@@ -98,9 +98,16 @@ class AudioRecorder(QObject):
                 
                 # Update level during recording
                 audio_data = np.frombuffer(data, dtype=np.int16)
-                rms = np.sqrt(np.mean(audio_data ** 2))
-                level = int((rms / 32768.0) * 100)
-                self.level_update.emit(min(100, level))
+                if len(audio_data) > 0:
+                    mean_square = np.mean(audio_data.astype(np.float64) ** 2)
+                    if mean_square >= 0:  # Ensure non-negative before sqrt
+                        rms = np.sqrt(mean_square)
+                        level = int((rms / 32768.0) * 100)
+                        self.level_update.emit(min(100, level))
+                    else:
+                        self.level_update.emit(0)
+                else:
+                    self.level_update.emit(0)
             
             # Stop and close stream
             stream.stop_stream()
@@ -191,9 +198,16 @@ class AudioRecorder(QObject):
                 
                 # Update level during recording
                 audio_data = np.frombuffer(data, dtype=np.int16)
-                rms = np.sqrt(np.mean(audio_data ** 2))
-                level = int((rms / 32768.0) * 100)
-                self.level_update.emit(min(100, level))
+                if len(audio_data) > 0:
+                    mean_square = np.mean(audio_data.astype(np.float64) ** 2)
+                    if mean_square >= 0:  # Ensure non-negative before sqrt
+                        rms = np.sqrt(mean_square)
+                        level = int((rms / 32768.0) * 100)
+                        self.level_update.emit(min(100, level))
+                    else:
+                        self.level_update.emit(0)
+                else:
+                    self.level_update.emit(0)
             
             # Stop and close stream
             stream.stop_stream()
@@ -376,7 +390,7 @@ class MainWindow(QMainWindow):
             QWidget {
                 background-color: #1e1e1e;
                 color: #e0e0e0;
-                font-family: 'Segoe UI', Arial, sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
                 font-size: 11pt;
             }
             QGroupBox {
@@ -609,7 +623,7 @@ class MainWindow(QMainWindow):
     def set_ui_enabled(self, enabled):
         """Enable or disable UI elements."""
         self.device_combo.setEnabled(enabled)
-        self.test_button.setEnabled(enabled)
+        self.test_record_button.setEnabled(enabled)
         self.duration_spin.setEnabled(enabled)
         self.prefix_input.setEnabled(enabled)
         self.index_spin.setEnabled(enabled)
