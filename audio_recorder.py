@@ -27,6 +27,7 @@ class AudioRecorder(QObject):
     recording_complete = pyqtSignal(bool, str)  # success, message
     level_update = pyqtSignal(int)  # audio level (0-100)
     test_complete = pyqtSignal(bool, str)  # test recording complete
+    countdown_update = pyqtSignal(int)  # remaining seconds
     
     def __init__(self):
         super().__init__()
@@ -88,11 +89,18 @@ class AudioRecorder(QObject):
             
             # Calculate number of chunks to record
             chunks_needed = int(self.RATE / self.CHUNK * duration)
+            chunks_per_second = int(self.RATE / self.CHUNK)
             
             # Record
-            for _ in range(chunks_needed):
+            for i in range(chunks_needed):
                 if not self.is_testing:
                     break
+                    
+                # Emit countdown every second
+                if i % chunks_per_second == 0:
+                    remaining = duration - (i // chunks_per_second)
+                    self.countdown_update.emit(remaining)
+                
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 self.frames.append(data)
                 
@@ -188,11 +196,18 @@ class AudioRecorder(QObject):
             
             # Calculate number of chunks to record
             chunks_needed = int(self.RATE / self.CHUNK * duration)
+            chunks_per_second = int(self.RATE / self.CHUNK)
             
             # Record
-            for _ in range(chunks_needed):
+            for i in range(chunks_needed):
                 if not self.is_recording:
                     break
+                    
+                # Emit countdown every second
+                if i % chunks_per_second == 0:
+                    remaining = duration - (i // chunks_per_second)
+                    self.countdown_update.emit(remaining)
+                
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 self.frames.append(data)
                 
@@ -262,6 +277,7 @@ class MainWindow(QMainWindow):
         self.recorder.recording_complete.connect(self.on_recording_complete)
         self.recorder.level_update.connect(self.update_level_meter)
         self.recorder.test_complete.connect(self.on_test_complete)
+        self.recorder.countdown_update.connect(self.update_countdown)
     
     def init_ui(self):
         """Initialize the user interface."""
@@ -545,6 +561,17 @@ class MainWindow(QMainWindow):
     def update_level_meter(self, level):
         """Update level meter (called from recording thread)."""
         self.level_meter.setValue(level)
+    
+    def update_countdown(self, remaining):
+        """Update countdown display on buttons."""
+        if self.is_testing:
+            self.test_record_button.setText(f"Recording... ({remaining}s)")
+        elif self.is_recording:
+            # Update the appropriate button based on which one is active
+            if "Recording..." in self.record_ok_button.text():
+                self.record_ok_button.setText(f"Recording... ({remaining}s)")
+            elif "Recording..." in self.record_ng_button.text():
+                self.record_ng_button.setText(f"Recording... ({remaining}s)")
     
     def on_index_changed(self, value):
         """Handle index spin box value change."""
