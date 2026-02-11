@@ -1,2 +1,16 @@
+# Audio Dataset Tool - Dependencies
+
+# Core UI
 PyQt6>=6.6.0
 PyAudio>=0.2.13
+numpy>=1.24.0
+
+# Audio Analysis
+librosa>=0.10.0
+matplotlib>=3.7.0
+soundfile>=0.12.0
+
+# Machine Learning
+tensorflow>=2.13.0
+tensorflow-hub>=0.14.0
+scikit-learn>=1.3.0

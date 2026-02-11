@@ -1,0 +1,12 @@
+{
+  "timestamp": "2026-02-11T17:43:53.631198",
+  "data_dir": "/home/lomchoi/dev/ctc/stream-audio-dataset-tool/output",
+  "num_train_samples": 60,
+  "num_val_samples": 15,
+  "epochs": 50,
+  "batch_size": 16,
+  "hidden_units": 256,
+  "dropout_rate": 0.3,
+  "final_train_accuracy": 1.0,
+  "final_val_accuracy": 1.0
+}
