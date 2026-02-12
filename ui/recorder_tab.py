@@ -9,12 +9,13 @@ import threading
 import numpy as np
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea,
     QPushButton, QComboBox, QLabel, QSpinBox, QLineEdit, QProgressBar,
-    QGroupBox, QCheckBox, QDoubleSpinBox
+    QGroupBox, QCheckBox, QDoubleSpinBox, QGridLayout
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
 import pyaudio
+from utils.motor_controller import MotorController
 
 
 class AudioRecorder(QObject):
@@ -250,6 +251,7 @@ class RecorderWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.recorder = AudioRecorder()
+        self.motor = MotorController()
         self.current_index = 1
         self.is_testing = False
         self.is_recording = False
@@ -270,9 +272,20 @@ class RecorderWidget(QWidget):
         self.recorder.test_complete.connect(self.on_test_complete)
         self.recorder.countdown_update.connect(self.update_countdown)
 
+        # Motor signals
+        self.motor.cycle_complete.connect(self.on_motor_cycle_complete)
+        self.motor.status_update.connect(self.on_motor_status)
+        self.motor.error.connect(self.on_motor_error)
+
     def init_ui(self):
         """Initialize the recording UI."""
-        layout = QVBoxLayout(self)
+        # Use a scroll area so everything fits on smaller screens
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
         layout.setSpacing(15)
 
         # Device Selection Group
@@ -376,6 +389,125 @@ class RecorderWidget(QWidget):
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
 
+        # ── Motor Control Group ──
+        motor_group = QGroupBox("⚙️ Motor Control (Arduino)")
+        motor_main_layout = QVBoxLayout()
+
+        # Enable checkbox
+        self.motor_enable_check = QCheckBox("Enable Motor Control")
+        motor_main_layout.addWidget(self.motor_enable_check)
+
+        # Connection row
+        conn_layout = QHBoxLayout()
+        conn_layout.addWidget(QLabel("Serial Port:"))
+        self.serial_port_combo = QComboBox()
+        self.serial_port_combo.setMinimumWidth(160)
+        conn_layout.addWidget(self.serial_port_combo)
+
+        self.refresh_ports_button = QPushButton("🔄")
+        self.refresh_ports_button.setFixedWidth(36)
+        self.refresh_ports_button.setToolTip("Refresh serial ports")
+        self.refresh_ports_button.clicked.connect(self.refresh_serial_ports)
+        conn_layout.addWidget(self.refresh_ports_button)
+
+        self.connect_motor_button = QPushButton("Connect")
+        self.connect_motor_button.clicked.connect(self.toggle_motor_connection)
+        conn_layout.addWidget(self.connect_motor_button)
+        conn_layout.addStretch()
+        motor_main_layout.addLayout(conn_layout)
+
+        # Settings grid
+        settings_grid = QGridLayout()
+        settings_grid.setHorizontalSpacing(12)
+        settings_grid.setVerticalSpacing(6)
+
+        # Row 0: Baud Rate
+        settings_grid.addWidget(QLabel("Baud Rate:"), 0, 0)
+        self.baud_rate_spin = QSpinBox()
+        self.baud_rate_spin.setRange(9600, 2000000)
+        self.baud_rate_spin.setValue(115200)
+        self.baud_rate_spin.setSingleStep(9600)
+        settings_grid.addWidget(self.baud_rate_spin, 0, 1)
+
+        # Row 0: Microsteps/Rev
+        settings_grid.addWidget(QLabel("Microsteps/Rev:"), 0, 2)
+        self.microsteps_spin = QSpinBox()
+        self.microsteps_spin.setRange(200, 25600)
+        self.microsteps_spin.setValue(1600)
+        self.microsteps_spin.setSingleStep(200)
+        settings_grid.addWidget(self.microsteps_spin, 0, 3)
+
+        # Row 1: Pins
+        settings_grid.addWidget(QLabel("Pulse Pin:"), 1, 0)
+        self.pulse_pin_spin = QSpinBox()
+        self.pulse_pin_spin.setRange(2, 13)
+        self.pulse_pin_spin.setValue(9)
+        settings_grid.addWidget(self.pulse_pin_spin, 1, 1)
+
+        settings_grid.addWidget(QLabel("Dir Pin:"), 1, 2)
+        self.dir_pin_spin = QSpinBox()
+        self.dir_pin_spin.setRange(2, 13)
+        self.dir_pin_spin.setValue(8)
+        settings_grid.addWidget(self.dir_pin_spin, 1, 3)
+
+        settings_grid.addWidget(QLabel("EN Pin:"), 1, 4)
+        self.en_pin_spin = QSpinBox()
+        self.en_pin_spin.setRange(2, 13)
+        self.en_pin_spin.setValue(7)
+        settings_grid.addWidget(self.en_pin_spin, 1, 5)
+
+        # Row 2: Motion parameters
+        settings_grid.addWidget(QLabel("Rotation (°):"), 2, 0)
+        self.rotation_deg_spin = QSpinBox()
+        self.rotation_deg_spin.setRange(1, 3600)
+        self.rotation_deg_spin.setValue(180)
+        settings_grid.addWidget(self.rotation_deg_spin, 2, 1)
+
+        settings_grid.addWidget(QLabel("Speed (steps/s):"), 2, 2)
+        self.motor_speed_spin = QSpinBox()
+        self.motor_speed_spin.setRange(10, 10000)
+        self.motor_speed_spin.setValue(800)
+        self.motor_speed_spin.setSingleStep(100)
+        settings_grid.addWidget(self.motor_speed_spin, 2, 3)
+
+        settings_grid.addWidget(QLabel("Pause (s):"), 2, 4)
+        self.motor_pause_spin = QDoubleSpinBox()
+        self.motor_pause_spin.setRange(0.0, 30.0)
+        self.motor_pause_spin.setValue(2.0)
+        self.motor_pause_spin.setSingleStep(0.5)
+        settings_grid.addWidget(self.motor_pause_spin, 2, 5)
+
+        motor_main_layout.addLayout(settings_grid)
+
+        # Test / Stop buttons row
+        motor_btn_layout = QHBoxLayout()
+
+        self.test_motor_button = QPushButton("🔄 Test Motor")
+        self.test_motor_button.setToolTip("Run one forward→reverse→pause cycle to test")
+        self.test_motor_button.clicked.connect(self.test_motor_cycle)
+        self.test_motor_button.setEnabled(False)
+        motor_btn_layout.addWidget(self.test_motor_button)
+
+        self.stop_motor_button = QPushButton("⛔ Stop Motor")
+        self.stop_motor_button.setStyleSheet("background-color: #f44336; color: white;")
+        self.stop_motor_button.clicked.connect(self.stop_motor)
+        self.stop_motor_button.setEnabled(False)
+        motor_btn_layout.addWidget(self.stop_motor_button)
+
+        motor_btn_layout.addStretch()
+        motor_main_layout.addLayout(motor_btn_layout)
+
+        # Motor status label
+        self.motor_status_label = QLabel("Motor: Not connected")
+        self.motor_status_label.setStyleSheet("color: #888; background: transparent; font-style: italic;")
+        motor_main_layout.addWidget(self.motor_status_label)
+
+        motor_group.setLayout(motor_main_layout)
+        layout.addWidget(motor_group)
+
+        # Populate serial ports
+        self.refresh_serial_ports()
+
         # Recording Buttons
         buttons_layout = QHBoxLayout()
 
@@ -400,6 +532,11 @@ class RecorderWidget(QWidget):
 
         layout.addLayout(buttons_layout)
         layout.addStretch()
+
+        scroll.setWidget(scroll_content)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
 
     def load_devices(self):
         """Load audio devices into combo box."""
@@ -503,8 +640,6 @@ class RecorderWidget(QWidget):
         if self.batch_check.isChecked() and self.batch_remaining == 0:
             self.batch_remaining = self.batch_count_spin.value()
             self.batch_category = category
-            # We don't use 'start' on timer here, logic flows to record() which triggers update when done.
-            # But we need to make sure we treat this as the first of batch.
             self.stop_batch_button.setVisible(True)
 
         duration = self.duration_spin.value()
@@ -538,11 +673,8 @@ class RecorderWidget(QWidget):
             """)
             
         if self.batch_check.isChecked():
-             # Logic fix: if we just started, we decrement for this current one
             if self.batch_remaining > 0:
-                 # decrement is done below or here? Let's do it here. 
-                 # Because start_recording IS the recording action.
-                 self.batch_remaining -= 1
+                self.batch_remaining -= 1
 
             remaining_msg = f" (Batch: {self.batch_remaining} pending)"
             self.status_message.emit(f"Recording {category}: {filename}{remaining_msg}", 0)
@@ -554,7 +686,14 @@ class RecorderWidget(QWidget):
     def start_next_batch_record(self):
         """Trigger the next recording in the batch."""
         if self.batch_remaining > 0 and self.batch_category:
-            self.start_recording(self.batch_category)
+            # If motor is enabled and connected, run motor cycle first
+            if self.motor_enable_check.isChecked() and self.motor.is_connected:
+                self._sync_motor_settings()
+                self.motor_status_label.setText("Motor: Running cycle...")
+                self.motor_status_label.setStyleSheet("color: #ff9800; background: transparent; font-style: italic;")
+                self.motor.run_collection_cycle()
+            else:
+                self.start_recording(self.batch_category)
         else:
             self.stop_batch_recording()
 
@@ -565,12 +704,16 @@ class RecorderWidget(QWidget):
         self.batch_timer.stop()
         self.stop_batch_button.setVisible(False)
         
+        # Stop motor if running
+        if self.motor.is_connected:
+            self.motor.stop()
+        
         # Stop actual recording if currently recording
         if self.is_recording:
              self.recorder.stop_recording()
              
         self.status_message.emit("Batch recording stopped.", 3000)
-        self.set_ui_enabled(True) # Ensure UI comes back if we stopped while waiting
+        self.set_ui_enabled(True)
 
     def on_recording_complete(self, success, message):
         """Handle recording completion."""
@@ -594,7 +737,6 @@ class RecorderWidget(QWidget):
                 self.batch_timer.start(int(interval * 1000))
                 return
             else:
-                 # Batch finished or just single record finished
                 self.status_message.emit(message, 5000)
         else:
             self.status_message.emit(f"Recording failed: {message}", 5000)
@@ -619,7 +761,137 @@ class RecorderWidget(QWidget):
         self.batch_count_spin.setEnabled(enabled)
         self.batch_interval_spin.setEnabled(enabled)
 
+    # ── Motor Control Methods ──
+
+    def refresh_serial_ports(self):
+        """Scan and populate available serial ports."""
+        self.serial_port_combo.clear()
+        ports = MotorController.list_serial_ports()
+        for port in ports:
+            self.serial_port_combo.addItem(
+                f"{port['device']} - {port['description']}",
+                port['device']
+            )
+        if not ports:
+            self.serial_port_combo.addItem("No ports found", None)
+
+    def toggle_motor_connection(self):
+        """Connect or disconnect the motor controller."""
+        if self.motor.is_connected:
+            self.motor.disconnect()
+            self.connect_motor_button.setText("Connect")
+            self.test_motor_button.setEnabled(False)
+            self.stop_motor_button.setEnabled(False)
+            self.motor_status_label.setText("Motor: Disconnected")
+            self.motor_status_label.setStyleSheet("color: #888; background: transparent; font-style: italic;")
+        else:
+            port = self.serial_port_combo.currentData()
+            if not port:
+                self.status_message.emit("No serial port selected!", 3000)
+                return
+
+            # Disable button during connection to prevent double-click
+            self.connect_motor_button.setEnabled(False)
+            self.connect_motor_button.setText("Connecting...")
+            self.motor_status_label.setText("Motor: Connecting...")
+            self.motor_status_label.setStyleSheet("color: #ff9800; background: transparent; font-style: italic;")
+
+            self._sync_motor_settings()
+            baud = self.baud_rate_spin.value()
+
+            # Run connection in background thread to avoid UI freeze
+            def _connect_thread():
+                success = self.motor.connect(port, baud)
+                # Use signal to update UI from main thread
+                if success:
+                    self.motor.status_update.emit(f"__CONNECTED__{port}")
+                else:
+                    self.motor.status_update.emit("__CONNECT_FAILED__")
+
+            thread = threading.Thread(target=_connect_thread, daemon=True)
+            thread.start()
+
+    def _handle_connection_result(self, message):
+        """Handle connection result from background thread."""
+        if message.startswith("__CONNECTED__"):
+            port = message.replace("__CONNECTED__", "")
+            self.connect_motor_button.setText("Disconnect")
+            self.connect_motor_button.setEnabled(True)
+            self.test_motor_button.setEnabled(True)
+            self.stop_motor_button.setEnabled(True)
+            self.motor_status_label.setText(f"Motor: Connected ({port})")
+            self.motor_status_label.setStyleSheet("color: #4caf50; background: transparent; font-style: italic;")
+            self.status_message.emit(f"Motor connected to {port}", 3000)
+        elif message == "__CONNECT_FAILED__":
+            self.connect_motor_button.setText("Connect")
+            self.connect_motor_button.setEnabled(True)
+            self.motor_status_label.setText("Motor: Connection failed")
+            self.motor_status_label.setStyleSheet("color: #f44336; background: transparent; font-style: italic;")
+        else:
+            # Normal status update — show it
+            self.motor_status_label.setText(f"Motor: {message}")
+            self.status_message.emit(f"Motor: {message}", 3000)
+
+    def _sync_motor_settings(self):
+        """Push current UI values into the motor controller."""
+        self.motor.update_config(
+            pulse_pin=self.pulse_pin_spin.value(),
+            dir_pin=self.dir_pin_spin.value(),
+            enable_pin=self.en_pin_spin.value(),
+            microsteps=self.microsteps_spin.value()
+        )
+        self.motor.rotation_degrees = self.rotation_deg_spin.value()
+        self.motor.motor_speed = self.motor_speed_spin.value()
+        self.motor.pause_after_cycle = self.motor_pause_spin.value()
+
+    def test_motor_cycle(self):
+        """Run a single forward→reverse→pause cycle to test the motor."""
+        if not self.motor.is_connected:
+            self.status_message.emit("Motor not connected!", 3000)
+            return
+        self._sync_motor_settings()
+        self.test_motor_button.setEnabled(False)
+        self.motor_status_label.setText("Motor: Testing cycle...")
+        self.motor_status_label.setStyleSheet("color: #ff9800; background: transparent; font-style: italic;")
+        self.status_message.emit("Motor test: running forward→reverse→pause cycle...", 0)
+        self.motor.run_collection_cycle()
+
+    def stop_motor(self):
+        """Emergency stop the motor."""
+        if self.motor.is_connected:
+            self.motor.stop()
+            self.test_motor_button.setEnabled(True)
+            self.motor_status_label.setText("Motor: Stopped")
+            self.motor_status_label.setStyleSheet("color: #f44336; background: transparent; font-style: italic;")
+            self.status_message.emit("Motor stopped.", 3000)
+
+    def on_motor_cycle_complete(self):
+        """Called when motor forward→reverse→pause cycle finishes."""
+        self.motor_status_label.setText("Motor: Cycle done ✔")
+        self.motor_status_label.setStyleSheet("color: #4caf50; background: transparent; font-style: italic;")
+        self.test_motor_button.setEnabled(True)
+        # Now start the next recording (batch mode)
+        if self.batch_remaining > 0 and self.batch_category:
+            self.start_recording(self.batch_category)
+
+    def on_motor_status(self, message):
+        """Display motor status updates."""
+        # Route connection result messages to the handler
+        if message.startswith("__CONNECTED__") or message == "__CONNECT_FAILED__":
+            self._handle_connection_result(message)
+            return
+        self.motor_status_label.setText(f"Motor: {message}")
+        self.status_message.emit(f"Motor: {message}", 3000)
+
+    def on_motor_error(self, message):
+        """Handle motor errors."""
+        self.motor_status_label.setText(f"Motor Error: {message}")
+        self.motor_status_label.setStyleSheet("color: #f44336; background: transparent; font-style: italic;")
+        self.status_message.emit(f"Motor Error: {message}", 5000)
+
     def cleanup(self):
         """Clean up resources."""
         self.batch_timer.stop()
+        if self.motor.is_connected:
+            self.motor.disconnect()
         self.recorder.cleanup()
